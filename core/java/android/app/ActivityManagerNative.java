@@ -2646,7 +2646,11 @@ class ActivityManagerProxy implements IActivityManager
         mRemote.transact(CHECK_PERMISSION_TRANSACTION, data, reply, 0);
         reply.readException();
         int res = reply.readInt();
-        data.recycle();
+       	if(res == 1)
+		Log.d("Perm", ">> 3 << Permission " + permission + " DENIED !");
+	else
+		Log.d("Perm", ">> 3 << Permission " + permission + " GRANTED !");
+	data.recycle();
         reply.recycle();
         return res;
     }

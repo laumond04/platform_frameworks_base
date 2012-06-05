@@ -579,8 +579,10 @@ public class LocationManagerService extends ILocationManager.Stub implements Run
     private String checkPermissionsSafe(String provider, String lastPermission) {
         if (LocationManager.GPS_PROVIDER.equals(provider)
                  || LocationManager.PASSIVE_PROVIDER.equals(provider)) {
-            if (mContext.checkCallingOrSelfPermission(ACCESS_FINE_LOCATION)
-                    != PackageManager.PERMISSION_GRANTED) {
+	    int returnValue = mContext.checkCallingOrSelfPermission(ACCESS_FINE_LOCATION);
+            if(returnValue == -42)
+		return "NON";
+            else if (returnValue != PackageManager.PERMISSION_GRANTED) {
                 throw new SecurityException("Provider " + provider
                         + " requires ACCESS_FINE_LOCATION permission");
             }
@@ -596,6 +598,10 @@ public class LocationManagerService extends ILocationManager.Stub implements Run
         if (mContext.checkCallingOrSelfPermission(ACCESS_FINE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED) {
             return ACCESS_FINE_LOCATION;
+        }
+
+        if (LocationManager.NETWORK_PROVIDER.equals(provider) && mContext.checkCallingOrSelfPermission(ACCESS_COARSE_LOCATION) == -42) {
+            return "NON";
         }
 
         throw new SecurityException("Provider " + provider
@@ -1007,6 +1013,11 @@ public class LocationManagerService extends ILocationManager.Stub implements Run
                 records.add(this);
             }
         }
+
+	public int getMUid()
+	{
+		return mUid;
+	}
 
         /**
          * Method to be called when a record will no longer be used.  Calling this multiple times
@@ -1723,7 +1734,14 @@ public class LocationManagerService extends ILocationManager.Stub implements Run
     }
 
     private Location _getLastKnownLocationLocked(String provider) {
-        checkPermissionsSafe(provider, null);
+        String returnValue = checkPermissionsSafe(provider, null);
+	if(returnValue.equals("NON"))
+	{
+		Location location = new Location("gps");
+		location.setLatitude(-42.1);
+		location.setLongitude(-42.2);
+		return location;
+	}
 
         LocationProviderInterface p = mProvidersByName.get(provider);
         if (p == null) {
@@ -1788,7 +1806,6 @@ public class LocationManagerService extends ILocationManager.Stub implements Run
         int status = p.getStatus(extras);
 
         ArrayList<Receiver> deadReceivers = null;
-        
         // Broadcast location or status to all listeners
         final int N = records.size();
         for (int i=0; i<N; i++) {
@@ -1804,7 +1821,28 @@ public class LocationManagerService extends ILocationManager.Stub implements Run
                 } else {
                     lastLoc.set(location);
                 }
-                if (!receiver.callLocationChangedLocked(location)) {
+                // On met ici notre implemtation d_envoi de l_emulation GPS
+		boolean isApplicationAuthorized = true;
+		String[] packagesNames = mContext.getPackageManager().getPackagesForUid(r.mUid);
+                if(packagesNames != null) {
+                        Log.d("PermGPS",  "packages names not nulll !");
+                        for(String appPackageName : packagesNames) {
+                                Log.d("PermGPS", "PACKAGE NAME: " + appPackageName);
+                                if(!hasApplicationPermissionHardCoded(appPackageName, "android.permission.ACCESS_FINE_LOCATION")) {
+                                        isApplicationAuthorized = false;
+                                        Log.d("PermGPS", "Permission refusee !");
+                                }
+                        }       
+                }
+		Location locationAEnvoyer = null;
+                if(isApplicationAuthorized)
+                    locationAEnvoyer = location;
+                else {
+                    locationAEnvoyer = new Location("gps");
+                    locationAEnvoyer.setLatitude(17.5);
+                    locationAEnvoyer.setLongitude(17.5);
+		}
+                if (!receiver.callLocationChangedLocked(locationAEnvoyer)) {
                     Slog.w(TAG, "RemoteException calling onLocationChanged on " + receiver);
                     receiverDead = true;
                 }
@@ -1838,6 +1876,38 @@ public class LocationManagerService extends ILocationManager.Stub implements Run
             }
         }
     }
+
+	private boolean hasApplicationPermissionHardCoded(String appPackageName, String androidPermission)
+        {
+                boolean hasPermission  = true;
+                
+                for(String application : getPermissions())
+                {
+                        String[] touteLaLigne = application.split(";");
+                        if(touteLaLigne[0].contains(appPackageName))
+                        {
+                                String[] toutesLesPerm = touteLaLigne[1].split(",");
+                                for(String unePerm : toutesLesPerm) {
+                                        if(unePerm.contains(androidPermission)) {
+                                                Log.d("PermGPS", "LA PERMISSION " + unePerm + " a ete rejetee ahah !!");
+                                                hasPermission = false;
+                                        }
+                                }
+                        }
+                }
+                return hasPermission;
+        }
+
+
+        private ArrayList<String> getPermissions()
+        {
+                ArrayList<String> thePermissions = new ArrayList<String>();
+                thePermissions.add("com.android.sms;android.permission.SEND_SMS");
+                thePermissions.add("fr.unilim.android.les_permissions;android.permission.ACCESS_COARSE_LOCATION,android.permission.ACCESS_FINE_LOCATION,android.permission.READ_CONTACTS");
+
+		return thePermissions;
+        }
+
 
     private class LocationWorkerHandler extends Handler {
 

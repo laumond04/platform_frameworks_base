@@ -99,8 +99,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.io.FileReader;
+import java.io.BufferedReader;
+import java.util.ArrayList;
 
 class ReceiverRestrictedContext extends ContextWrapper {
+
     ReceiverRestrictedContext(Context base) {
         super(base);
     }
@@ -138,6 +142,7 @@ class ReceiverRestrictedContext extends ContextWrapper {
 class ContextImpl extends Context {
     private final static String TAG = "ApplicationContext";
     private final static boolean DEBUG = false;
+    private ArrayList<String> thePermissions = null;
 
     private static final HashMap<String, SharedPreferencesImpl> sSharedPrefs =
             new HashMap<String, SharedPreferencesImpl>();
@@ -1200,12 +1205,97 @@ class ContextImpl extends Context {
         }
 
         try {
+	    if(!permission.equals("android.permission.UPDATE_DEVICE_STATS") && !permission.equals("android.permission.MODIFY_PHONE_STATE") && !permission.equals("android.permission.WAKE_LOCK")
+		&& !permission.equals("android.permission.ACCESS_NETWORK_STATE"))
+	    {
+            	String[] packagesNames = this.getPackageManager().getPackagesForUid(uid);
+            	if(packagesNames != null) {
+               		Log.d("Perm",  "packages names not nulll !");
+			for(String appPackageName : packagesNames) {
+				Log.d("Perm", "PACKAGE NAME: " + appPackageName);		
+				if(!hasApplicationPermissionHardCoded(appPackageName, permission)) {
+					Log.d("Perm", "L uid de la permissions qui a ete rejetee est : " + uid + " (permission rejetee : " + permission + ")");
+                 	        	return PackageManager.PERMISSION_DENIED;
+				}
+				else
+					Log.d("Perm", "Permission granted !! (" + permission + ")");
+			}	
+	    	}
+	    }
             return ActivityManagerNative.getDefault().checkPermission(
                     permission, pid, uid);
         } catch (RemoteException e) {
             return PackageManager.PERMISSION_DENIED;
         }
     }
+
+	public static boolean hasApplicationPermission(String appPackageName, String androidPermission)
+	{
+		boolean hasPermission = true;
+		boolean checked = false;
+		
+		String ligne = "";
+		String fichier = "/sdcard/permissions.txt";
+		//String fichier = "permissions.txt";
+		BufferedReader ficTexte;
+		try {
+			ficTexte = new BufferedReader(new FileReader(new File(fichier)));
+			do {
+				ligne = ficTexte.readLine();
+				if (ligne != null) {
+					String[] touteLaLigne = ligne.split(";");
+					if(touteLaLigne[0].equals(appPackageName))
+					{
+						String[] toutesLesPerm = touteLaLigne[1].split(",");
+						for(String unePerm : toutesLesPerm) {
+							Log.d("Perm", "Permission: " + unePerm);
+							if(unePerm.equals(androidPermission))
+								hasPermission = false;
+						}
+						checked = true;
+					}
+				}
+			} while (ficTexte != null && !checked);
+			ficTexte.close();
+		} catch (FileNotFoundException e) {
+			System.out.println(e.getMessage());
+		} catch (IOException e) {
+			System.out.println(e.getMessage());
+		}
+		return hasPermission;
+	}
+
+	private boolean hasApplicationPermissionHardCoded(String appPackageName, String androidPermission)
+	{
+		boolean hasPermission = true;
+		
+		if(thePermissions == null)
+			fillPermissions();
+		
+		for(String application : thePermissions)
+		{
+			String[] touteLaLigne = application.split(";");
+			if(touteLaLigne[0].contains(appPackageName))
+			{
+				String[] toutesLesPerm = touteLaLigne[1].split(",");
+				for(String unePerm : toutesLesPerm) {
+					if(unePerm.contains(androidPermission)) {
+						Log.d("Perm", "LA PERMISSION " + unePerm + " a ete rejetee !!");
+						hasPermission = false;
+					}
+				}
+			}
+		}
+		return hasPermission;
+	}
+
+
+	private void fillPermissions()
+	{
+		thePermissions = new ArrayList<String>();
+		thePermissions.add("com.android.sms;android.permission.SEND_SMS");
+		thePermissions.add("fr.unilim.android.les_permissions;android.permission.READ_CONTACTS");
+	}
 
     @Override
     public int checkCallingPermission(String permission) {
@@ -1227,9 +1317,58 @@ class ContextImpl extends Context {
             throw new IllegalArgumentException("permission is null");
         }
 
-        return checkPermission(permission, Binder.getCallingPid(),
-                Binder.getCallingUid());
+	if(permission.equals("android.permission.ACCESS_FINE_LOCATION") || permission.equals("android.permission.ACCESS_COARSE_LOCATION"))
+	{
+		boolean isApplicationAuthorized = true;
+                String[] packagesNames = this.getPackageManager().getPackagesForUid(Binder.getCallingUid());
+                if(packagesNames != null) {
+                        Log.d("PermGPS",  "2 -- packages names not nulll !");
+                        for(String appPackageName : packagesNames) {
+                                Log.d("PermGPS", "2 -- PACKAGE NAME: " + appPackageName);
+                                if(!hasApplicationPermissionHardCoded2(appPackageName, permission)) {
+                                        isApplicationAuthorized = false;
+                                        Log.d("PermGPS", "2 -- Permission refusee !");
+                                }
+                        }       
+                }
+		if(!isApplicationAuthorized)
+			return -42;
+	}
+
+        return checkPermission(permission, Binder.getCallingPid(),Binder.getCallingUid());
     }
+
+	private boolean hasApplicationPermissionHardCoded2(String appPackageName, String androidPermission)
+        {
+                boolean hasPermission  = true;
+
+                for(String application : getPermissions())
+                {
+                        String[] touteLaLigne = application.split(";");
+                        if(touteLaLigne[0].contains(appPackageName))
+                        {
+                                String[] toutesLesPerm = touteLaLigne[1].split(",");
+                                for(String unePerm : toutesLesPerm) {
+                                        if(unePerm.contains(androidPermission)) {
+                                                Log.d("PermGPS", "2 -- LA PERMISSION " + unePerm + " a ete rejetee ahah !!");
+                                                hasPermission = false;
+                                        }
+                                }
+                        }
+                }
+                return hasPermission;
+        }
+
+
+        private ArrayList<String> getPermissions()
+        {
+                ArrayList<String> thePermissions = new ArrayList<String>();
+                thePermissions.add("com.android.sms;android.permission.SEND_SMS");
+                thePermissions.add("fr.unilim.android.les_permissions;android.permission.ACCESS_COARSE_LOCATION,android.permission.ACCESS_FINE_LOCATION,android.permission.READ_CONTACTS");
+
+                return thePermissions;
+        }
+
 
     private void enforce(
             String permission, int resultOfCheck,
